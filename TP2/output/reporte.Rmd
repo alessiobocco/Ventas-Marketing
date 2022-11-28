@@ -1,0 +1,306 @@
+---
+title: "Trabajo Práctico 2"
+author:
+  - Alessio Bocco (boccoalessio@gmail.com)
+  -
+date: '`r format(as.Date("2020-09-20"), "%d de %B de %Y")`'
+output: 
+  bookdown::pdf_book:
+    highlight: pygments
+    latex_engine: xelatex
+    toc: true
+    toc_depth: 3
+    fig_width: 5
+    fig_height: 3
+always_allow_html: true
+
+header-includes:
+    - \usepackage{setspace}
+    - \usepackage{lineno}
+    - \usepackage{float}
+    - \usepackage{caption}
+    - \usepackage{chngcntr}
+    - \floatstyle{ruled}
+    - \newfloat{codechunk}{htbp}{chk}
+    - \floatname{codechunk}{Source Code}
+    - \floatplacement{figure}{H} #make every figure with caption = h
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+El presente trabajo práctico analiza los resultados de la campaña de marketing online realizada por Rocket Fuel y TaskaBella.
+
+# Análisis exploratorio
+
+El dataset cuenta con `r print(usuarios)` usuarios que participaron del estudio. Del total, `r length(expuestos)` han sido expuestos a la campaña de marketing mientras que `r length(control)` pertenecen al grupo de control. Las  variables que serán consideradas en el análisis son:
+
+* Tasa de conversión: variable binaria, si el usuario compró la cartera o no. 
+* Cantidad de impresiones: variable cuantitativa, numero total de impresiones a las que eran expuestos los usuarios.
+* Día de la semana
+* Hora del día
+
+Las variables se resumen en la siguiente tabla.
+
+```{r, echo = FALSE}
+cuanti_summarise %>%
+  kableExtra::kable()
+```
+
+Los dos grupos, control y expuesto, fueron expuestos a avisos publiciatarios diferentes pero como muestra la Figura \@ref(fig:densidad_impresiones), ambos grupos tuvieron una distribución de impresiones bastante similar. 
+
+```{r densidad_impresiones, echo = FALSE, fig.align='center'}
+densidad_impresiones
+```
+
+El efecto del tiempo sobre la tasa de conversión se evalúa con información sobre el día de la semana y hora del día en la que ocurre la conversión. La Tabla \@ref(tab:conversion_dia_tabla) muestra la tasa de conversión por cada día de la semana.
+
+```{r conversion_dia_tabla, echo = FALSE}
+conversion_dia_semana %>%
+  dplyr::mutate(tasa_conversion = round(tasa_conversion, 4)*100) %>%
+  dplyr::rename(Día = dia, `Tasa de conversión (%)` = tasa_conversion) %>%
+  kableExtra::kable()
+```
+Se observa que la tasa de conversión es similar entre días a excepción del domingo. Con respecto a la hora del día, la Figura \@ref(tab:conversion_hora_figura).
+
+```{r conversion_hora_figura, echo = FALSE,fig.align='center'}
+conversion_dia_semana_grafico
+```
+Se observa una estacionalidad en las tasas de conversión con picos en las horas de la tarde/noche. 
+
+# Efectividad de la campaña
+
+## Diferencia de medias
+
+Para evaluar la efectividad de la campaña de marketing es necesario conocer si existe una diferencia significativa entre la tasa de conversión de los usuarios expuestos y del grupo de control. Se realizó un A/B testing para cuantificar el efecto de la campaña sobre los usuarios. La prueba compara las tasas de conversión de ambos grupos con para determinar si son iguales o no. 
+
+El test reveló una diferencia estadísticamente significativa en la tasa de conversión entre los usuarios expuestos (*M* = `r mean(data$converted[which(data$test==0)])`, *SD* = `r sd(data$converted[which(data$test==0)])`) y aquellos del grupo de control (*M* = `r mean(data$converted[which(data$test==1)])`, *SD* = `r sd(data$converted[which(data$test==1)])`), *t*(`r diferencia_medias$parameter`) = `r diferencia_medias$statistic`, *p* `r paste(p_report(diferencia_medias$p.value))`, *d* = `r lsr::cohensD(converted~user_group, data=data)`. A partir de lo anterior se concluye que la campaña ha sido efectiva. 
+
+Aplicando la técnica de bootstrap es posible conocer la distribución de la diferencia entre las medias de ambos grupos. La Figura \@ref(fig:conversion_hora_dia_grafico) muestra la distribución de la diferencia de medias (linea negra) y el intervalo superior de confianza del 95% (línea roja)
+
+```{r conversion_hora_dia_grafico, echo = FALSE, fig.align='center'}
+intervalos_confianza_plataforma_momento
+```
+
+Se observa que la distribución toma valores negativos lo que implica que la tasa de conversión de los usuarios expuestos a la campaña ha sido superior a la tasa del grupo de control con un 95% de confianza. 
+
+A modo de resumen numérico se presentan los siguientes resultados: 
+
+* Cantidad de usuarios expuestos que compraron la cartera: `r usuarios_expuestos_convertidos` (`r round((usuarios_expuestos_convertidos/length(expuestos))*100, 4)`%).
+* Cantidad de usuarios en control que compraron la cartera: `r usuarios_control_convertidos` (`r round((usuarios_control_convertidos/length(control))*100, 4)`%).
+* Usuarios expuestos convertidos por la campaña: `r round(usuarios_expuesto_convertidos_campaña, 0)`
+
+Otra alternativa para la evaluación de la efectividad consiste en utilizar modelos estadísticos como regresiones lineales y logísticas. 
+
+## Regresión lineal
+
+El modelo regresión modela la probabilidad de que un usuario expuesto a la campaña compre la cartera. El modelo estadístico es el siguiente: 
+
+```{r model_linear, echo=FALSE,results = "asis", echo = FALSE}
+equatiomatic::extract_eq(modelo_regresion_basico, intercept = "beta")
+```
+El modelo ajustado por MCO es:
+
+```{r, echo=FALSE}
+equatiomatic::extract_eq(modelo_regresion_basico, wrap = TRUE, 
+                         use_coefs = TRUE, coef_digits = 3)
+```
+
+El coeficiente del modelo indica que estar expuesto a la campanna aumenta la probabilidad de compra en un 0.8%. Estos resultados están en línea con el análisis numérico mostrado anteriormente. 
+
+El modelo lineal es estadísticamente significativo. 
+
+```{r , echo = FALSE}
+modelsummary::modelsummary(modelo_regresion_basico, 
+                           output = "kableExtra",
+                           statistic = c("conf.int",
+                           "s.e. = {std.error}", 
+                           "t = {statistic}",
+                           "p = {p.value}")) 
+```
+
+Aplicando también bootstrap sobre el modelo lineal es posible conocer la variabilidad del parametro $\beta_1$ que corresponde a la probabilidad de compra. La Figura \@ref(fig:histograma_coeficientes_basico) muestra la distribución de los coeficientes del modelo lineal. 
+
+```{r histograma_coeficientes_basico, echo=FALSE, fig.align='center'}
+histograma_coeficientes_basico
+```
+
+## Regresión logística
+
+Una mejor alternativa al modelo lineal es la regresión logística. Este tipo de modelos se ajusta mejor a situaciones binarias (compra vs no compra) como el caso en estudio. El modelo estadístico es el siguiente: 
+
+```{r model_logis, echo=FALSE,results = "asis"}
+equatiomatic::extract_eq(modelo_regresion_logistica, intercept = "beta")
+```
+
+El coeficiente del modelo logístico no tiene una interpretación directa en cuanto a magnitud pero si por su signo. El modelo ajustado es:
+
+```{r, echo=FALSE}
+equatiomatic::extract_eq(modelo_regresion_logistica, wrap = TRUE, 
+                         use_coefs = TRUE, coef_digits = 3)
+```
+Un valor positivo de $\beta_1$ indica que estar expuesto a la campaña aumenta las probabilidades de comprar la cartera. Al exponenciar dicho valor se obtiene que estar expuesto a la campaña aumenta las probabilidades de compra 1.44 veces. 
+
+```{r , echo = FALSE}
+modelsummary::modelsummary(modelo_regresion_logistica, 
+                           output = "kableExtra",
+                           statistic = c("conf.int",
+                           "s.e. = {std.error}", 
+                           "t = {statistic}",
+                           "p = {p.value}")) 
+```
+
+Al aplicar también la 'tecnica del bootstrap sobre este modelo se puede observar en la Figura \@ref(fig:histograma_coeficientes_logistico) que los valores de $\beta_1$ son positivos lo que indican la efectividad de la campaña. 
+
+```{r, histograma_coeficientes_logistico, echo = FALSE, fig.align='center'}
+histograma_coeficientes_logistico
+```
+
+# Rentabilidad de la campaña
+
+La rentabilidad de la campaña para TaskaBell podría pensarse como los usuarios expuestos que compraron las carteras. Al multiplicar la cantidad de usuarios convertidos por el valor que la firma le asigna a cada uno de ellos se obtiene un valor de USD `r format(ingresos_campana, scientific = FALSE)`. 
+Los costos de la campaña de marketing se estima a través de la cantidad de impresiones que fueron utilizadas. Si mil impresiones tienen un valor de 9 USD, la totalidad de impresiones usadas equivalen a USD `r format(costo_campana, scientific = FALSE)`. 
+El retorno de la inversión en la campaña de marketing, ROI, se estima como la diferencia entre el margen obtenido gracias a la campaña sobre los costos. La fórmula del ROI es la siguiente:
+
+\[
+ROI = \frac{Ingresos - Costo}
+     {Costos}
+\]
+
+La rentabilidad de la campaña fue de `r format(ingresos_campana - costo_campana, scientific = FALSE) ` USD mientras que el ROI fue de `r round((ingresos_campana - costo_campana)/costo_campana*100, 4)`%. Basándose en ambas métricas la campaña de marketing fue rentable. 
+El análisis económico se concluye con el costo de oportunidad de la campaña. El costo de oportunidad se entiende como aquellos usuarios que se encontraban en el grupo de control y que no fueron expuesto a las impresiones. Es decir, los clientes potenciales que se han perdido. Al tomar la fracción de usuarios del control que podrían haberse convertido con la campaña se obtiene que `r round(usuarios_control_convertidos_potenciales, 0)` usuarios, por un valor de `r round(usuarios_control_convertidos_potenciales*40, 0)` USD podrían haber comprado las carteras. 
+
+# Análisis de efectividad de la campaña
+
+La efectividad de la campaña se evalúa al comparar la cantidad de impresiones usadas con la cantidad de usuarios convertidos. La distribución de la cantidad de impresiones por usuarios se muestra en la Figura \@ref(fig:impresiones_densidad).
+
+```{r impresiones_densidad, echo = FALSE, fig.align='center'}
+densidad_conversion_impresiones
+```
+
+La distribución del número total de impresiones que fueron necesarias para convertir usuarios es muy asimétrica con una cola pesada en el extremo derecho de la distribución. Sin embargo, es posible identificar un codo alrededor de 250 impresiones. Por encima de este valor la cantidad de usuario convertidos disminuye notablemente. Habiendo dicho esto, el análisis se centra en el rango de 1-250 impresiones que son las que tuvieron el mayor impacto durante la campaña. 
+La Figura \@ref(fig:densidad_conversion_impresiones_250) muestra los usuario convertidos por cantidad de impresiones para los grupos expuesto (línea roja) y control (línea verde).
+
+```{r densidad_conversion_impresiones_250, echo = FALSE, fig.align='center'}
+densidad_conversion_impresiones_250
+```
+
+La distribución es bastante similar entre grupos y que la gran mayoría de las conversiones tiene lugar en el rango 1-150 impresiones. 
+Para indagar aún más sobre la dinámica de la conversión se dividió a la variable _total de impresiones_ en clases discretas separadas por intervalos de 25 impresiones, totalizando 11 clases. 
+Las principales métricas para cada una de las clases se muestra en la Tabla \@ref(tab:)
+
+```{r, echo = FALSE}
+data %>%
+  dplyr::group_by(clases_impr) %>%
+  dplyr::summarise(usuarios = n(), 
+                   conversion = sum(converted), 
+                   total_impresiones = sum(tot_impr)) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(tasa_conversion = (conversion / usuarios) * 100,
+                impresiones_conversion = total_impresiones / conversion) %>%
+  dplyr::rename(Clases = clases_impr, Usuarios = usuarios, 
+                `Total impresiones` = total_impresiones,
+                `Tasa de conversión` = tasa_conversion,
+                `Impresiones por conversión` = impresiones_conversion,
+                Conversión = conversion) %>%
+  kableExtra::kable(., digits = c(0, 0, 0, 1, 1))
+```
+
+La información mostrada en la Tabla se muestra también en la Figura , dónde las barras corresponden a la cantidad de conversiones por clase de número de impresiones, mientras que la línea negra corresponde a la cantidad de impresiones a las que deben ser expuestos esos usuarios convertirlos. Entre 1 y 100 impresiones la cantidad de usuarios convertidos es máxima y tiende a decrecer por encima de dicho umbral mostrando algunos síntomas de saturación. Por encima de las 100 impresiones por usuario la cantidad de impresiones por conversión aumenta en gran medida, la campaña pierda efectividad. Además de lo anterior, al incrementarse la cantidad de impresiones los costos lo hacen proporcionalmente. 
+
+```{r, fig.width=8}
+histograma_conversiones_totales
+```
+
+
+En línea con lo anterior, la Figura \@ref(fig:evolucion_tasa_conversion) muestra la dinámica de la tasa de conversión a medida que aumentan las impresiones por usuario. 
+
+```{r evolucion_tasa_conversion, echo = FALSE, fig.width=8}
+evolucion_tasa_conversion
+```
+
+La tasa de conversión aumenta sostenidamente hasta alcanzar un máximo alrededor de las 100 impresiones por usuario. Esta cantidad de impresiones serían las óptimas para tener la mayor efectividad. Por encima de las 100-150 impresiones pareciera generarse un cierto hastío porque la tasa de conversión disminuye. 
+
+# Efecto del momento de exposición
+
+## Día de la semana
+
+La Figura \@ref(fig:efecto_dia_semana) muestra la tasa de conversión por cada día de la semana para los dos grupos, Expuesto y Control. Se puede observar como la tasa de conversión para el grupo expuesto es superior para el comienzo de la semana, días lunes y martes, y luego tiende a decrecer hacia el fin de semana para repuntar un poco el día domingo. El grupo control no muestra un comportamiento claro y es más variable. 
+
+```{r, echo = FALSE}
+efecto_dia_semana_tasa
+```
+
+Para evaluar la efectividad de la campaña se considera la variación del total de impresiones por conversión para día de la semana. La \@ref(fig:efecto_dia_semana_efectividad) muestra la cantidad de impresiones que fueron necesarias para lograr la compra de la cartera por cada día de la semana para ambos grupos. Valores más bajos de esta variable indican una mayor efectividad de la campaña de marketing. 
+
+```{r efecto_dia_semana_efectividad, echo = FALSE}
+efecto_dia_semana_efectividad
+```
+
+Nuevamente, los días lunes y martes fueron los días más efectivos de la semana, con una efectividad media de alrededor de 800 impresiones por conversión. En los días viernes y sábado la efectividad disminuyó a cerca de 1200 impresiones por conversión. 
+
+## Hora del día
+
+Siguiendo la misma lógica anterior se estimaron las mismas métricas por cada hora del día. La Figura \@ref(fig:) muestra la tasa de conversión por hora del día para cada uno de los grupos. Las mayores tasas de conversión tienen lugar durante la tarde entre las 15:00 y las 21:00. En esta franja horaria la tasa se mantiene por encima del 2.5% con un pico de más del 3% a las 16:00. Contrariamente, aquellos usuarios que fueron expuestos durante la madrugada fueron los que menor tasa de conversión mostraron. 
+
+```{r efecto_hora_tasa, echo = FALSE}
+efecto_hora_tasa
+```
+
+Para complementar el análisis es calculó la cantidad de impresiones por conversión para cada hora del día. La Figura \@ref(fig:efecto_hora_efectividad) muestra la evolución de dicha métrica para cada uno de los grupos. La campaña fue menos eficiente durante la madrugada, en consonancia con lo dicho anteriormente, ya que se necesitaron una mayor cantidad de avisos por cada conversión. Lo contrario ocurrió durante la tarde donde fueron necesarios menos de 1000 impresiones por cada conversión. 
+
+```{r efecto_hora_efectividad, echo = FALSE}
+efecto_hora_efectividad
+```
+
+# Análisis de regresión 
+
+El modelo lineal utilizado intenta explicar el efecto del total de impresiones a las que es expuesto un usuario y el momento (día de la semana y hora del día) sobre la probabilidad de que éste compre la cartera. Basado en el análisis descripto en secciones anteriores se ajusto un primer modelo considerando las interacciones existentes entre el total de impresiones y el día de la semana y entre el día de la semana y la hora del día. Esto se debe a que los usuarios no son indiferentes al número de avisos diarios a los que son expuestos durante los distintos días de la semana y también a que no es lo mismo observar un anuncio un día de mayor sensibilidad como los lunes en comparación como un día domingo. Además de las interacciones planteadas se considero la relación no lineal entre la conversión y el total de impresiones. Como se mostró en el análisis anterior la relación puede ser modelada como una función cuadrática. 
+
+Al considerar el modelo con interacciones la cantidad de coeficientes del modelo fue muy importante y, en general, no fueron significativos. Esto da la pauta que si bien el análisis exploratorio dio pistas al respecto el supuesto de interacción no se verificó con el modelo lineal. Esto puede deberse a que el modelo lineal no fue lo suficientemente flexible como para capturar el comportamiento mencionado. 
+
+Dado que los coeficientes de la interacción no fueron significativos se eliminaron del modelo y se ajustó nuevamente sólo considerando el total de impresiones y las variables dummy para el día de la semana y la hora del día. El modelo estadístico lineal probabilístico es el siguiente: 
+
+```{r model_lineal_prob, echo=FALSE,results = "asis", echo = FALSE}
+equatiomatic::extract_eq(ajuste_lineal_basico, intercept = "beta", wrap = TRUE)
+```
+El modelo ajustado por MCO es:
+
+```{r, echo=FALSE}
+equatiomatic::extract_eq(ajuste_lineal_basico, wrap = TRUE, 
+                         use_coefs = TRUE, coef_digits = 6)
+```
+
+El modelo lineal es estadísticamente significativo. 
+
+```{r , echo = FALSE}
+modelsummary::modelsummary(ajuste_lineal_basico, 
+                           output = "kableExtra",
+                           statistic = c("conf.int",
+                           "p = {p.value}")) 
+```
+
+Para analizar el efecto del día de la semana sobre la conversión se graficaron los coeficientes del modelo lineal. La Figura \@ref(fig:coeficiente_dia_semana) muestra los coeficientes para cada uno de los días de la semana a excepción del día lunes que es considerado la base. 
+
+```{r coeficiente_dia_semana, echo = FALSE}
+coeficiente_dia_semana
+```
+
+Dado que el lunes es el día con mayor probabilidad de conversión todos los coeficientes son negativos. Como se mostró anteriormenete, la tasa de conversión disminuía hacia el fin de semana con un ligero repunto el día domingo tal como se muestra en la Figura. 
+
+Con las horas del día se realizo el mismo análisis y se muestra en la Figura \@ref(fig:coeficiente_hora_dia)
+
+```{r, coeficiente_hora_dia, echo = FALSE}
+coeficiente_hora_dia
+```
+
+Este resultado es consecuente con los mostrado con valores negativos para la madrugada, los momentos con menores probabilidades de conversión, y luego creciendo para alcanzar el el pico a las 16 horas, con una probabilidad mayor al 1% de comprar la cartera con respecto a la base de la medianoche. 
+
+La variable total de impresiones fue evaluada mediante el efecto marginal calculado a partir de la derivada primera de la función cuadrática que modela su comportamiento. El resultado se muestra en la Figura \@ref(fig:efecto_maringal_impresiones)
+
+```{r efecto_maringal_impresiones, echo = FALSE}
+efecto_maringal_impresiones
+```
+
+
